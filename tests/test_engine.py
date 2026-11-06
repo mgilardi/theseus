@@ -87,8 +87,25 @@ class Guard(unittest.TestCase):
     def test_reads_from_unlisted_connectors_get_no_pass(self):
         self.assertIsNone(self.decision("mcp__other__get_thing"))
 
+    def imessage_reply(self, chat_id):
+        return self.decision("mcp__plugin_imessage_imessage__reply", {"chat_id": chat_id, "text": "hi"})
+
     def test_the_imessage_channel_can_answer_you(self):
-        self.assertIsNone(self.decision("mcp__plugin_imessage_imessage__reply"))
+        (self.ws / "config.json").write_text(json.dumps({"my_handles": ["(555) 555-0100", "Me@example.com"]}))
+        for chat in ("iMessage;-;+15555550100", "any;-;5555550100", "iMessage;-;me@example.com", "SMS;-;+15555550100"):
+            self.assertIsNone(self.imessage_reply(chat), chat)
+        self.assertIsNone(self.decision("mcp__plugin_imessage_imessage__chat_messages"))
+
+    def test_the_imessage_channel_cannot_reach_anyone_else(self):
+        (self.ws / "config.json").write_text(json.dumps({"my_handles": ["5555550100", "me@example.com"]}))
+        for chat in ("iMessage;-;+15555550101", "iMessage;-;friend@example.com", "iMessage;+;chat123", "iMessage;+;+15555550100", "+15555550100", "", None):
+            self.assertEqual(self.imessage_reply(chat), "deny", chat)
+        self.assertEqual(self.decision("mcp__plugin_imessage_imessage__some_new_tool"), "deny")
+
+    def test_the_imessage_channel_needs_your_handles(self):
+        for config in ('{"my_handles": []}', '{"my_handles": [""]}', "{}", "not json"):
+            (self.ws / "config.json").write_text(config)
+            self.assertEqual(self.imessage_reply("iMessage;-;+15555550100"), "deny", config)
 
     def test_other_tools_are_ignored(self):
         self.assertIsNone(self.decision("Read"))
@@ -671,6 +688,15 @@ class UnattendedLimits(unittest.TestCase):
             (ws / "cache" / name).write_text("x")
         subprocess.run(["/bin/bash", str(ROOT / "engine/scheduled/after-run.sh")], env={**os.environ, "THESEUS_HOME": str(ws)}, check=True)
         self.assertEqual([p.name for p in (ws / "cache").iterdir()], ["keep.txt"])
+
+    def test_a_run_clears_its_hidden_temp_exports(self):
+        ws = Path(tempfile.mkdtemp(prefix="theseus-exports-"))
+        self.addCleanup(shutil.rmtree, ws, True)
+        (ws / "exports").mkdir()
+        for name in (".rem-sync-tmp.json", "keep.json"):
+            (ws / "exports" / name).write_text("x")
+        subprocess.run(["/bin/bash", str(ROOT / "engine/scheduled/after-run.sh")], env={**os.environ, "THESEUS_HOME": str(ws)}, check=True)
+        self.assertEqual([p.name for p in (ws / "exports").iterdir()], ["keep.json"])
 
 
 class CommandList(unittest.TestCase):

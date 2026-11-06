@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- **The iMessage channel can only answer in your own self-chat.** The send guard now checks where each reply is going, and refuses anything else even if the plugin's allowlist would permit it.
+- **Runs clear their scratch files.** Hidden temporary exports, like a copy of your Reminders, are removed when a run ends.
+- **Release builds are harder to tamper with.** GitHub Actions are pinned to exact commits, the signing secrets reach only the step that needs them, and the write token isn't left where an install script could use it.
+
 ## 0.6.0
 - **Unattended runs have firmer limits.** Texts, email and web pages are treated as data, never instructions. Runs nobody is watching can't search the web or change your settings, and no session can read your SSH, cloud or signing keys, or your Claude login.
 - **No copies of your messages stay behind.** The copies of Messages, Contacts and Mail are deleted when each run ends, and stay out of Time Machine. Your workspace is now private to your account. A Claude Code session without Full Disk Access can no longer read texts from an old copy, and it says so.

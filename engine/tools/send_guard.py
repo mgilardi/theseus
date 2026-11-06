@@ -29,8 +29,8 @@ PEOPLE = {"COMMENT", "COMMENTS", "MESSAGE", "MESSAGES", "CHAT", "EMAIL", "EMAILS
 # Names with no separator between the words, like SENDMAIL or REPLYALL.
 GLUED_SEND = re.compile(r"(SEND|REPLY|FORWARD|POST|SHARE|PUBLISH)(ALL|TO|NOW|MAIL|EMAIL|MESSAGE|MSG|TEXT|SMS|DM|CHAT|COMMENT)S?")
 COMPOSIO_SHELLS = ("COMPOSIO_REMOTE_BASH_TOOL", "COMPOSIO_REMOTE_WORKBENCH", "COMPOSIO_PROXY_EXECUTE")
-# The iMessage channel's own reply tool. RULES §5b limits it to the self-chat you're texting from.
-EXEMPT_SERVERS = ("plugin_imessage",)
+# The iMessage channel. It may answer you, and only in your own self-chat (RULES §5b): the plugin would also send to anyone on its allowlist.
+IMESSAGE_CHANNEL = "plugin_imessage"
 
 
 def classify(name: str) -> str:
@@ -60,6 +60,33 @@ def read_connectors() -> list:
         return []
 
 
+def handle_key(handle: str) -> str:
+    """An address in lowercase, or a phone number's last 10 digits, so +1 (602) and 602 match."""
+    handle = handle.strip().lower()
+    return handle if "@" in handle else re.sub(r"\D", "", handle)[-10:]
+
+
+def my_handles() -> set:
+    try:
+        root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or ".")
+        handles = json.loads((root / "config.json").read_text()).get("my_handles") or []
+        return {handle_key(str(h)) for h in handles} - {""}
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def imessage_channel(name: str, call: dict):
+    if name == "chat_messages":   # reading its own allowlisted chats goes to the normal rules
+        return
+    if name == "reply":
+        # A one-to-one chat id looks like iMessage;-;+15551234567. Groups use ;+; and never match.
+        parts = str(call["tool_input"].get("chat_id") or "").split(";")
+        if len(parts) == 3 and parts[1] == "-" and handle_key(parts[2]) in my_handles():
+            return
+        decide("deny", "Theseus only answers in your own self-chat. If this is your self-chat, add this address to my_handles in config.json.")
+    decide("deny", f"Theseus doesn't know this iMessage tool, so it's refused: {name}.")
+
+
 def composio(tool: str, call: dict):
     if any(tool.endswith(s) for s in COMPOSIO_SHELLS):
         decide("ask", "This Composio tool can do anything, so Theseus asks first.")
@@ -87,8 +114,8 @@ def main():
     if len(parts) < 3 or parts[0] != "mcp":
         return
     server, name = parts[1], "__".join(parts[2:])
-    if server.startswith(EXEMPT_SERVERS):
-        return
+    if server.startswith(IMESSAGE_CHANNEL):
+        return imessage_channel(name, call)
     if "COMPOSIO_" in name:
         return composio(tool, call)
     kind = classify(name)
